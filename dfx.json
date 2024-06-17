@@ -1,0 +1,23 @@
+{
+  "canisters": {
+    "fitness_tracker": {
+      "type": "custom",
+      "main": "src/index.ts",
+      "candid": "src/index.did",
+      "candid_gen": "http",
+      "build": "npx azle fitness_tracker",
+      "wasm": ".azle/fitness_tracker/fitness_tracker.wasm",
+      "gzip": true,
+      "metadata": [
+        {
+            "name": "candid:service",
+            "path": "src/index.did"
+        },
+        {
+            "name": "cdk:name",
+            "content": "azle"
+        }
+    ]
+    }
+  }
+}
