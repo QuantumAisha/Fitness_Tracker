@@ -1,4 +1,45 @@
 service: () -> {
-    http_request: (record {url:text; method:text; body:vec nat8; headers:vec record {text; text}; certificate_version:opt nat16}) -> (record {body:vec nat8; headers:vec record {text; text}; upgrade:opt bool; streaming_strategy:opt variant {Callback:record {token:vec nat8; callback:func (vec nat8) -> (opt record {token:opt vec nat8; body:vec nat8}) query}}; status_code:nat16}) query;
-    http_request_update: (record {url:text; method:text; body:vec nat8; headers:vec record {text; text}}) -> (record {body:vec nat8; headers:vec record {text; text}; upgrade:opt bool; streaming_strategy:opt variant {Callback:record {token:vec nat8; callback:func (vec nat8) -> (opt record {token:opt vec nat8; body:vec nat8}) query}}; status_code:nat16});
+  http_request: (record {
+    url: text;
+    method: text;
+    body: vec nat8;
+    headers: vec record { text; text };
+    certificate_version: opt nat16;
+  }) -> (record {
+    body: vec nat8;
+    headers: vec record { text; text };
+    upgrade: opt bool;
+    streaming_strategy: opt variant { Callback: record { token: vec nat8; callback: func (vec nat8) -> (opt record { token: opt vec nat8; body: vec nat8 }) query } };
+    status_code: nat16;
+  }) query;
+
+  http_request_update: (record {
+    url: text;
+    method: text;
+    body: vec nat8;
+    headers: vec record { text; text };
+  }) -> (record {
+    body: vec nat8;
+    headers: vec record { text; text };
+    upgrade: opt bool;
+    streaming_strategy: opt variant { Callback: record { token: vec nat8; callback: func (vec nat8) -> (opt record { token: opt vec nat8; body: vec nat8 }) query } };
+    status_code: nat16;
+  });
+
+  create_user: (record { name: text; email: text }) -> (record { message: text; user: record { id: text; name: text; email: text; points: nat; createdAt: text } });
+  update_user: (record { id: text; name: text; email: text }) -> (record { message: text; user: record { id: text; name: text; email: text; points: nat; createdAt: text } });
+  delete_user: (text) -> (record { message: text });
+  get_users: (record { page: nat; limit: nat }) -> (record { message: text; users: vec record { id: text; name: text; email: text; points: nat; createdAt: text } });
+  create_activity: (record { userId: text; type: text; duration: nat; date: text }) -> (record { message: text; activity: record { id: text; userId: text; type: text; duration: nat; date: text; createdAt: text } });
+  delete_activity: (text) -> (record { message: text });
+  get_activities: (record { page: nat; limit: nat }) -> (record { message: text; activities: vec record { id: text; userId: text; type: text; duration: nat; date: text; createdAt: text } });
+  get_user_activities: (record { userId: text; page: nat; limit: nat }) -> (record { message: text; activities: vec record { id: text; userId: text; type: text; duration: nat; date: text; createdAt: text } });
+  create_challenge: (record { creatorId: text; title: text; description: text }) -> (record { message: text; challenge: record { id: text; creatorId: text; title: text; description: text; participants: vec text; createdAt: text } });
+  delete_challenge: (text) -> (record { message: text });
+  get_challenges: (record { page: nat; limit: nat }) -> (record { message: text; challenges: vec record { id: text; creatorId: text; title: text; description: text; participants: vec text; createdAt: text } });
+  join_challenge: (record { challengeId: text; userId: text }) -> (record { message: text; challenge: record { id: text; creatorId: text; title: text; description: text; participants: vec text; createdAt: text } });
+  follow_user: (record { followerId: text; followingId: text }) -> (record { message: text; follow: record { id: text; followerId: text; followingId: text; createdAt: text } });
+  unfollow_user: (text) -> (record { message: text });
+  get_followers: (record { userId: text; page: nat; limit: nat }) -> (record { message: text; followers: vec record { id: text; followerId: text; followingId: text; createdAt: text } });
+  get_leaderboard: (record { size: nat; page: nat; limit: nat }) -> (record { message: text; leaderboard: vec record { id: text; name: text; email: text; points: nat; createdAt: text } });
 }
