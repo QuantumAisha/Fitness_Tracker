@@ -2,6 +2,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { Server, StableBTreeMap, Principal } from "azle";
 import express from "express";
+import Joi from "joi";
 
 // Define the User class to represent users
 class User {
@@ -79,6 +80,38 @@ const activitiesStorage = StableBTreeMap<string, Activity>(1);
 const challengesStorage = StableBTreeMap<string, Challenge>(2);
 const followsStorage = StableBTreeMap<string, Follow>(3);
 
+// Define validation schemas using Joi
+const userSchema = Joi.object({
+  name: Joi.string().required(),
+  email: Joi.string().email().required()
+});
+
+const activitySchema = Joi.object({
+  userId: Joi.string().required(),
+  type: Joi.string().required(),
+  duration: Joi.number().integer().positive().required(),
+  date: Joi.date().required()
+});
+
+const challengeSchema = Joi.object({
+  creatorId: Joi.string().required(),
+  title: Joi.string().required(),
+  description: Joi.string().required()
+});
+
+const followSchema = Joi.object({
+  followerId: Joi.string().required(),
+  followingId: Joi.string().required()
+});
+
+// Middleware for error handling
+const errorHandler = (err, req, res, next) => {
+  console.error(err);
+  res.status(err.status || 500).json({
+    error: err.message || 'Server error occurred'
+  });
+};
+
 // Define the express server
 export default Server(() => {
   const app = express();
@@ -86,346 +119,257 @@ export default Server(() => {
 
   // Endpoint for creating a new user
   app.post("/users", (req, res) => {
-    if (!req.body.name || typeof req.body.name !== "string" || !req.body.email || typeof req.body.email !== "string") {
-      res.status(400).json({
-        error: "Invalid input: Ensure 'name' and 'email' are provided and are strings.",
-      });
-      return;
-    }
+    const { error, value } = userSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
 
-    // Validate the email format to ensure it's correct
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(req.body.email)) {
-      res.status(400).json({
-        error: "Invalid input: Ensure 'email' is a valid email address.",
-      });
-      return;
-    }
-
-    // Ensure the email is unique
-    const existingUser = usersStorage.values().find((user) => user.email === req.body.email);
-    if (existingUser) {
-      res.status(409).json({
-        error: "User with this email already exists.",
-      });
-      return;
-    }
+    const existingUser = usersStorage.values().find((user) => user.email === value.email);
+    if (existingUser) return res.status(409).json({ error: "User with this email already exists." });
 
     try {
-      const user = new User(req.body.name, req.body.email);
+      const user = new User(value.name, value.email);
       usersStorage.insert(user.id, user);
-      res.status(201).json({
-        message: "User created successfully",
-        user: user,
-      });
+      res.status(201).json({ message: "User created successfully", user: user });
     } catch (error) {
-      console.error("Failed to create user:", error);
-      res.status(500).json({
-        error: "Server error occurred while creating the user.",
-      });
+      next(error);
+    }
+  });
+
+  // Endpoint for updating user details
+  app.put("/users/:id", (req, res) => {
+    const { error, value } = userSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    const userOpt = usersStorage.get(req.params.id);
+    if (!userOpt.Some) return res.status(404).json({ error: "User not found." });
+
+    try {
+      const user = userOpt.Some;
+      user.name = value.name;
+      user.email = value.email;
+      usersStorage.insert(user.id, user);
+      res.status(200).json({ message: "User updated successfully", user: user });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Endpoint for deleting a user
+  app.delete("/users/:id", (req, res) => {
+    const userOpt = usersStorage.get(req.params.id);
+    if (!userOpt.Some) return res.status(404).json({ error: "User not found." });
+
+    try {
+      usersStorage.remove(req.params.id);
+      res.status(200).json({ message: "User deleted successfully" });
+    } catch (error) {
+      next(error);
     }
   });
 
   // Endpoint for creating a new activity
   app.post("/activities", (req, res) => {
-    if (
-      !req.body.userId ||
-      typeof req.body.userId !== "string" ||
-      !req.body.type ||
-      typeof req.body.type !== "string" ||
-      !req.body.duration ||
-      typeof req.body.duration !== "number" ||
-      !req.body.date
-    ) {
-      res.status(400).json({
-        error: "Invalid input: Ensure 'userId', 'type', 'duration', and 'date' are provided and are of the correct types.",
-      });
-      return;
-    }
+    const { error, value } = activitySchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
 
-    // Validate the userId to ensure it exists
-    const userOpt = usersStorage.get(req.body.userId);
-    if (!userOpt.Some) {
-      res.status(404).json({
-        error: "User with the given ID does not exist.",
-      });
-      return;
-    }
-    
+    const userOpt = usersStorage.get(value.userId);
+    if (!userOpt.Some) return res.status(404).json({ error: "User not found." });
+
     try {
-      const activity = new Activity(req.body.userId, req.body.type, req.body.duration, new Date(req.body.date));
+      const activity = new Activity(value.userId, value.type, value.duration, new Date(value.date));
       activitiesStorage.insert(activity.id, activity);
 
-      // Update user points
-      const userOpt = usersStorage.get(req.body.userId);
-      if (userOpt.Some) {
-        const user = userOpt.Some;
-        user.points += req.body.duration; // Assuming 1 point per minute of activity
-        usersStorage.insert(user.id, user);
-      }
+      const user = userOpt.Some;
+      user.points += value.duration; // Assuming 1 point per minute of activity
+      usersStorage.insert(user.id, user);
 
-      res.status(201).json({
-        message: "Activity created successfully",
-        activity: activity,
-      });
+      res.status(201).json({ message: "Activity created successfully", activity: activity });
     } catch (error) {
-      console.error("Failed to create activity:", error);
-      res.status(500).json({
-        error: "Server error occurred while creating the activity.",
-      });
+      next(error);
+    }
+  });
+
+  // Endpoint for deleting an activity
+  app.delete("/activities/:id", (req, res) => {
+    const activityOpt = activitiesStorage.get(req.params.id);
+    if (!activityOpt.Some) return res.status(404).json({ error: "Activity not found." });
+
+    try {
+      activitiesStorage.remove(req.params.id);
+      res.status(200).json({ message: "Activity deleted successfully" });
+    } catch (error) {
+      next(error);
     }
   });
 
   // Endpoint for creating a new challenge
   app.post("/challenges", (req, res) => {
-    if (
-      !req.body.creatorId ||
-      typeof req.body.creatorId !== "string" ||
-      !req.body.title ||
-      typeof req.body.title !== "string" ||
-      !req.body.description ||
-      typeof req.body.description !== "string"
-    ) {
-      res.status(400).json({
-        error: "Invalid input: Ensure 'creatorId', 'title', and 'description' are provided and are strings.",
-      });
-      return;
-    }
+    const { error, value } = challengeSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
 
-    // Validate the creatorId to ensure it exists(creatorId is the user ID)
-    const userOpt = usersStorage.get(req.body.creatorId);
-    if (!userOpt.Some) {
-      res.status(404).json({
-        error: "User with the given ID does not exist.",
-      });
-      return;
-    }
+    const userOpt = usersStorage.get(value.creatorId);
+    if (!userOpt.Some) return res.status(404).json({ error: "User not found." });
 
     try {
-      const challenge = new Challenge(req.body.creatorId, req.body.title, req.body.description);
+      const challenge = new Challenge(value.creatorId, value.title, value.description);
       challengesStorage.insert(challenge.id, challenge);
-      res.status(201).json({
-        message: "Challenge created successfully",
-        challenge: challenge,
-      });
+      res.status(201).json({ message: "Challenge created successfully", challenge: challenge });
     } catch (error) {
-      console.error("Failed to create challenge:", error);
-      res.status(500).json({
-        error: "Server error occurred while creating the challenge.",
-      });
+      next(error);
+    }
+  });
+
+  // Endpoint for deleting a challenge
+  app.delete("/challenges/:id", (req, res) => {
+    const challengeOpt = challengesStorage.get(req.params.id);
+    if (!challengeOpt.Some) return res.status(404).json({ error: "Challenge not found." });
+
+    try {
+      challengesStorage.remove(req.params.id);
+      res.status(200).json({ message: "Challenge deleted successfully" });
+    } catch (error) {
+      next(error);
     }
   });
 
   // Endpoint for joining a challenge
   app.post("/challenges/:challengeId/join", (req, res) => {
-    if (!req.body.userId || typeof req.body.userId !== "string") {
-      res.status(400).json({
-        error: "Invalid input: Ensure 'userId' is provided and is a string.",
-      });
-      return;
-    }
-
-    // Valiadate the challengeId to ensure it exists
-    const challengeOpt1 = challengesStorage.get(req.params.challengeId);
-    if (!challengeOpt1.Some) {
-      res.status(404).json({
-        error: "Challenge not found.",
-      });
-      return;
-    }
-
-    // Validate the userId to ensure it exists
-    const userOpt = usersStorage.get(req.body.userId);
-    if (!userOpt.Some) {
-      res.status(404).json({
-        error: "User with the given ID does not exist.",
-      });
-      return;
-    }
+    const { error, value } = followSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
 
     const challengeOpt = challengesStorage.get(req.params.challengeId);
-    if (!challengeOpt.Some) {
-      res.status(404).json({
-        error: "Challenge not found.",
-      });
-      return;
+    if (!challengeOpt.Some) return res.status(404).json({ error: "Challenge not found." });
+
+    const userOpt = usersStorage.get(value.userId);
+    if (!userOpt.Some) return res.status(404).json({ error: "User not found." });
+
+    try {
+      const challenge = challengeOpt.Some;
+      if (challenge.participants.includes(value.userId)) {
+        return res.status(409).json({ error: "User already joined the challenge." });
+      }
+      challenge.participants.push(value.userId);
+      challengesStorage.insert(challenge.id, challenge);
+      res.status(200).json({ message: "Joined challenge successfully", challenge: challenge });
+    } catch (error) {
+      next(error);
     }
-
-    const challenge = challengeOpt.Some;
-    challenge.participants.push(req.body.userId);
-    challengesStorage.insert(challenge.id, challenge);
-
-    res.status(200).json({
-      message: "Joined challenge successfully",
-      challenge: challenge,
-    });
   });
 
   // Endpoint for following a user
   app.post("/follows", (req, res) => {
-    if (
-      !req.body.followerId ||
-      typeof req.body.followerId !== "string" ||
-      !req.body.followingId ||
-      typeof req.body.followingId !== "string"
-    ) {
-      res.status(400).json({
-        error: "Invalid input: Ensure 'followerId' and 'followingId' are provided and are strings.",
-      });
-      return;
-    }
+    const { error, value } = followSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
 
-    // Validate the followerId to ensure it exists(followerId is the user ID)
-    const userOpt = usersStorage.get(req.body.followerId);
-    if (!userOpt.Some) {
-      res.status(404).json({
-        error: "User with the given ID does not exist.",
-      });
-      return;
-    }
+    if (value.followerId === value.followingId) return res.status(400).json({ error: "User cannot follow themselves." });
 
-    // Validate the ids to make sure the user doesn't follow themselves
-    if (req.body.followerId === req.body.followingId) {
-      res.status(400).json({
-        error: "Invalid input: User cannot follow themselves.",
-      });
-      return;
-    }
+    const followerOpt = usersStorage.get(value.followerId);
+    if (!followerOpt.Some) return res.status(404).json({ error: "Follower not found." });
 
-    // Validate the followingId to ensure it exists(followingId is the user ID)
-    const userOpt2 = usersStorage.get(req.body.followingId);
-    if (!userOpt2.Some) {
-      res.status(404).json({
-        error: "User with the given ID does not exist.",
-      });
-      return;
-    }
-    
+    const followingOpt = usersStorage.get(value.followingId);
+    if (!followingOpt.Some) return res.status(404).json({ error: "Following not found." });
+
     try {
-      const follow = new Follow(req.body.followerId, req.body.followingId);
+      const follow = new Follow(value.followerId, value.followingId);
       followsStorage.insert(follow.id, follow);
-      res.status(201).json({
-        message: "Followed user successfully",
-        follow: follow,
-      });
+      res.status(201).json({ message: "Followed user successfully", follow: follow });
     } catch (error) {
-      console.error("Failed to follow user:", error);
-      res.status(500).json({
-        error: "Server error occurred while following the user.",
-      });
+      next(error);
     }
   });
 
-  // Endpoint for retrieving all users
+  // Endpoint for deleting a follow
+  app.delete("/follows/:id", (req, res) => {
+    const followOpt = followsStorage.get(req.params.id);
+    if (!followOpt.Some) return res.status(404).json({ error: "Follow relationship not found." });
+
+    try {
+      followsStorage.remove(req.params.id);
+      res.status(200).json({ message: "Unfollowed user successfully" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Endpoint for retrieving all users with pagination
   app.get("/users", (req, res) => {
+    const { page = 1, limit = 10 } = req.query;
+    const offset = (page - 1) * limit;
     try {
-      const users = usersStorage.values();
-      res.status(200).json({
-        message: "Users retrieved successfully",
-        users: users,
-      });
+      const users = usersStorage.values().slice(offset, offset + limit);
+      res.status(200).json({ message: "Users retrieved successfully", users: users });
     } catch (error) {
-      console.error("Failed to retrieve users:", error);
-      res.status(500).json({
-        error: "Server error occurred while retrieving users.",
-      });
+      next(error);
     }
   });
 
-  // Endpoint for retrieving all activities
+  // Endpoint for retrieving all activities with pagination
   app.get("/activities", (req, res) => {
+    const { page = 1, limit = 10 } = req.query;
+    const offset = (page - 1) * limit;
     try {
-      const activities = activitiesStorage.values();
-      res.status(200).json({
-        message: "Activities retrieved successfully",
-        activities: activities,
-      });
+      const activities = activitiesStorage.values().slice(offset, offset + limit);
+      res.status(200).json({ message: "Activities retrieved successfully", activities: activities });
     } catch (error) {
-      console.error("Failed to retrieve activities:", error);
-      res.status(500).json({
-        error: "Server error occurred while retrieving activities.",
-      });
+      next(error);
     }
   });
 
-  // Endpoint for retrieving activities by user ID
+  // Endpoint for retrieving activities by user ID with pagination
   app.get("/activities/:userId", (req, res) => {
-    if (!req.params.userId || typeof req.params.userId !== "string") {
-      res.status(400).json({
-        error: "Invalid input: Ensure 'userId' is provided as a string.",
-      });
-      return;
-    }
-
+    const { page = 1, limit = 10 } = req.query;
+    const offset = (page - 1) * limit;
     try {
-      const userActivities = activitiesStorage.values().filter((activity) => activity.userId === req.params.userId);
-      res.status(200).json({
-        message: "Activities retrieved successfully",
-        activities: userActivities,
-      });
+      const userActivities = activitiesStorage.values()
+        .filter((activity) => activity.userId === req.params.userId)
+        .slice(offset, offset + limit);
+      res.status(200).json({ message: "Activities retrieved successfully", activities: userActivities });
     } catch (error) {
-      console.error("Failed to retrieve activities:", error);
-      res.status(500).json({
-        error: "Server error occurred while retrieving activities.",
-      });
+      next(error);
     }
   });
 
-  // Endpoint for retrieving all challenges
+  // Endpoint for retrieving all challenges with pagination
   app.get("/challenges", (req, res) => {
+    const { page = 1, limit = 10 } = req.query;
+    const offset = (page - 1) * limit;
     try {
-      const challenges = challengesStorage.values();
-      res.status(200).json({
-        message: "Challenges retrieved successfully",
-        challenges: challenges,
-      });
+      const challenges = challengesStorage.values().slice(offset, offset + limit);
+      res.status(200).json({ message: "Challenges retrieved successfully", challenges: challenges });
     } catch (error) {
-      console.error("Failed to retrieve challenges:", error);
-      res.status(500).json({
-        error: "Server error occurred while retrieving challenges.",
-      });
+      next(error);
     }
   });
 
   // Endpoint for retrieving all followers for a user
   app.get("/follows/:userId", (req, res) => {
-    if (!req.params.userId || typeof req.params.userId !== "string") {
-      res.status(400).json({
-        error: "Invalid input: Ensure 'userId' is provided as a string.",
-      });
-      return;
-    }
-
+    const { page = 1, limit = 10 } = req.query;
+    const offset = (page - 1) * limit;
     try {
-      const followers = followsStorage.values().filter((follow) => follow.followingId === req.params.userId);
-      res.status(200).json({
-        message: "Followers retrieved successfully",
-        followers: followers,
-      });
+      const followers = followsStorage.values()
+        .filter((follow) => follow.followingId === req.params.userId)
+        .slice(offset, offset + limit);
+      res.status(200).json({ message: "Followers retrieved successfully", followers: followers });
     } catch (error) {
-      console.error("Failed to retrieve followers:", error);
-      res.status(500).json({
-        error: "Server error occurred while retrieving followers.",
-      });
+      next(error);
     }
   });
 
-  // Endpoint for retrieving the leaderboard
+  // Endpoint for retrieving the leaderboard with dynamic size and pagination
   app.get("/leaderboard", (req, res) => {
+    const { size = 10, page = 1, limit = 10 } = req.query;
+    const offset = (page - 1) * limit;
     try {
       const users = usersStorage.values();
-      const leaderboard = users.sort((a, b) => b.points - a.points).slice(0, 10); // Top 10 users
-      res.status(200).json({
-        message: "Leaderboard retrieved successfully",
-        leaderboard: leaderboard,
-      });
+      const leaderboard = users.sort((a, b) => b.points - a.points).slice(0, size);
+      const paginatedLeaderboard = leaderboard.slice(offset, offset + limit);
+      res.status(200).json({ message: "Leaderboard retrieved successfully", leaderboard: paginatedLeaderboard });
     } catch (error) {
-      console.error("Failed to retrieve leaderboard:", error);
-      res.status(500).json({
-        error: "Server error occurred while retrieving leaderboard.",
-      });
+      next(error);
     }
   });
+
+  // Middleware for handling errors
+  app.use(errorHandler);
 
   // Start the server
   return app.listen();
